@@ -6,7 +6,6 @@ export function mlToInterpretationAdapter(
     next: NextFunction
 ) {
     const payload = req.body.distortion ?? req.body;
-
     const ml = payload;
 
     if (!ml?.analisis || !ml?.scraped_content) {
@@ -20,6 +19,27 @@ export function mlToInterpretationAdapter(
         ml.analisis?.document_distorsion?.contradicciones ?? [];
 
     const primeraContradiccion = contradicciones[0];
+
+    // ✅ RESPETAR LA RELEVANCIA REAL DEL MODELO
+    const relevanciaRaw =
+        ml.analisis?.document_relevance?.decision_document ??
+        ml.relevance?.decision_document ??
+        ml.status ??
+        "desconocido";
+
+    const scoreRelevancia =
+        ml.analisis?.document_relevance?.score_document ??
+        ml.relevance?.score_document ??
+        null;
+
+    const hayRelacion =
+        relevanciaRaw !== "tangencial" &&
+        relevanciaRaw !== "poco_relevante" &&
+        relevanciaRaw !== "desconocido";
+
+    const bestParagraph = hayRelacion
+        ? ml.scraped_content?.segmentos_contenido?.[0]?.text ?? null
+        : null;
 
     const adaptedPayload = {
         distortion: {
@@ -50,12 +70,9 @@ export function mlToInterpretationAdapter(
         },
 
         relevance: {
-            decision_document: "RELEVANTE",
-            best_paragraph: {
-                text:
-                    ml.scraped_content?.segmentos_contenido?.[0]?.text ??
-                    "No disponible"
-            }
+            decision_document: relevanciaRaw,
+            score: scoreRelevancia,
+            best_paragraph: bestParagraph ? { text: bestParagraph } : null
         }
     };
 

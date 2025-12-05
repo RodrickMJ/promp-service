@@ -23,7 +23,6 @@ interface OpenRouterResponse {
 }
 
 export class OpenRouterService {
-
     static async formatAnalysisForUser(analysisResult: any): Promise<{
         veredicto: "SIN SESGOS DETECTADOS" | "CON SESGOS DETECTADOS" | "ANÁLISIS INCONCLUSIVO";
         explicacion_detallada: string;
@@ -33,15 +32,29 @@ export class OpenRouterService {
     }> {
 
         const textosAnalizados = analysisResult.distortion?.oraciones_analizadas?.[0];
-        const textoUsuario = textosAnalizados?.sentence || "Texto no disponible";
-        const textoFuente = textosAnalizados?.paragraph || analysisResult.relevance?.best_paragraph?.text || "Fuente no disponible";
 
-        const sesgosDetectados = analysisResult.biases?.labels || [];
+        const textoUsuario =
+            textosAnalizados?.sentence ||
+            "El usuario no proporcionó una oración verificable.";
+
+        const textoFuente =
+            analysisResult.relevance?.best_paragraph?.text ||
+            "No existe un fragmento de fuente directamente relacionado.";
+
         const relevancia = analysisResult.relevance?.decision_document;
-        const distorsion = analysisResult.distortion?.decision;
+        const sesgosDetectados = analysisResult.biases?.labels || [];
 
-        const userPrompt = `
-Eres un analista experto en comunicación política mexicana. Analiza si el texto del usuario contiene SESGOS POLÍTICOS SIGNIFICATIVOS, no simples expresiones de opinión personal.
+        // ✅ DETECCIÓN FORMAL DE NO RELACIÓN
+        const esNoRelacion =
+            relevancia === "tangencial" ||
+            relevancia === "poco_relevante" ||
+            !analysisResult.relevance?.best_paragraph;
+
+        let userPrompt = "";
+
+        if (esNoRelacion) {
+            userPrompt = `
+El texto del usuario NO tiene relación verificable con la fuente proporcionada.
 
 TEXTO DEL USUARIO:
 "${textoUsuario}"
@@ -49,71 +62,77 @@ TEXTO DEL USUARIO:
 TEXTO DE LA FUENTE:
 "${textoFuente}"
 
-INSTRUCCIONES CRÍTICAS:
+Tu tarea NO es comparar hechos, sino:
 
-Considera como SESGOS POLÍTICOS SIGNIFICATIVOS solo estos casos:
-- Parcialidad partidista clara (favorece/ataca específicamente a un partido político)
-- Lenguaje polarizante o confrontacional hacia grupos políticos
-- Generalizaciones negativas sobre instituciones o figuras políticas
-- Descalificaciones directas a actores políticos
-- Manipulación evidente de datos estadísticos con intención política
-- Uso de estereotipos políticos o discursos de odio
+1. Explicar claramente por qué el texto del usuario no puede validarse ni refutarse con la fuente.
+2. Analizar si el texto del usuario contiene por sí mismo sesgos políticos significativos.
+3. Indicar que falta contexto verificable.
 
-NO consideres como sesgos significativos:
-- Expresiones de opinión personal ("creo que", "me parece")
-- Valoraciones subjetivas moderadas ("es positivo", "es bueno") 
+Devuelve ÚNICAMENTE este JSON:
+
+{
+  "veredicto": "ANÁLISIS INCONCLUSIVO",
+  "explicacion_detallada": "Explicación clara de por qué no hay relación semántica o factual entre ambos textos",
+  "coincidencias_con_fuente": [],
+  "sesgos_identificados": [],
+  "contexto_analisis": "No existe relación verificable entre la afirmación del usuario y la fuente"
+}
+      `.trim();
+        } else {
+            // ✅ TU PROMPT NORMAL CUANDO SÍ HAY RELACIÓN
+            userPrompt = `
+Eres un analista experto en comunicación política mexicana. Analiza si el texto del usuario contiene SESGOS POLÍTICOS SIGNIFICATIVOS.
+
+TEXTO DEL USUARIO:
+"${textoUsuario}"
+
+TEXTO DE LA FUENTE:
+"${textoFuente}"
+
+Criterios válidos de sesgo:
+- Ataques políticos directos
+- Generalizaciones sobre actores políticos
+- Manipulación de datos
+- Lenguaje polarizante
+
+NO son sesgos:
+- Opiniones personales
+- Valoraciones subjetivas moderadas
 - Lenguaje emocional leve
-- Preferencias personales sin ataque a otros
-- Interpretaciones subjetivas que no distorsionan los hechos
 
-BASADO EN ESTE CRITERIO, determina:
-
-VEREDICTO FINAL:
-- "CON SESGOS DETECTADOS": Solo si hay sesgos políticos CLAROS Y SIGNIFICATIVOS
-- "SIN SESGOS DETECTADOS": Si son solo opiniones personales o no hay sesgos políticos evidentes
-- "ANÁLISIS INCONCLUSIVO": Si no hay suficiente información para determinar
-
-Responde ÚNICAMENTE con un JSON en español con esta estructura:
+Responde SOLO este JSON:
 
 {
   "veredicto": "SIN SESGOS DETECTADOS" | "CON SESGOS DETECTADOS" | "ANÁLISIS INCONCLUSIVO",
-  "explicacion_detallada": "Explicación específica de por qué hay o no hay sesgos políticos significativos, analizando el texto del usuario",
-  "coincidencias_con_fuente": [
-    "Coincidencia 1 específica entre ambos textos",
-    "Coincidencia 2 específica entre ambos textos"
-  ],
-  "sesgos_identificados": [
-    "Solo si hay sesgos políticos claros, describe específicamente cada uno"
-  ],
-  "contexto_analisis": "Breve contexto sobre el tipo de sesgo político analizado"
+  "explicacion_detallada": "Explicación del análisis",
+  "coincidencias_con_fuente": [],
+  "sesgos_identificados": [],
+  "contexto_analisis": "Tipo de análisis realizado"
 }
+      `.trim();
+        }
 
-IMPORTANTE: Sé estricto. Solo marca como sesgo lo que sea claramente un sesgo político significativo.
-        `.trim();
-
-        const messages: ChatMessage[] = [
+        const messages = [
             {
                 role: "system",
-                content: "Eres un analista político estricto que solo considera sesgos políticos significativos, ignorando opiniones personales leves. Eres objetivo y riguroso en tus evaluaciones."
+                content:
+                    "Eres un analista político estricto, lógico, verificable y sin suposiciones."
             },
-            {
-                role: "user",
-                content: userPrompt
-            }
+            { role: "user", content: userPrompt }
         ];
 
         const body = {
             model: MODEL,
             temperature: 0.1,
-            max_tokens: 1500,
-            messages: messages
+            max_tokens: 1200,
+            messages
         };
 
         const res = await fetch(OPENROUTER_URL, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${API_KEY}`
+                Authorization: `Bearer ${API_KEY}`
             },
             body: JSON.stringify(body)
         });
@@ -123,32 +142,17 @@ IMPORTANTE: Sé estricto. Solo marca como sesgo lo que sea claramente un sesgo p
             throw new Error(`Error en OpenRouter: ${res.status} - ${text}`);
         }
 
-        const json = await res.json() as OpenRouterResponse;
-        const assistantMessage = json.choices?.[0]?.message;
+        const json = await res.json();
+        const output = json.choices?.[0]?.message?.content || "";
 
-        if (!assistantMessage) {
-            throw new Error("No se recibió respuesta del modelo.");
-        }
-
-        const output = assistantMessage.content || "";
-
-        let parsed: any = null;
+        let parsed: any;
 
         try {
             parsed = JSON.parse(output);
         } catch {
             const match = output.match(/\{[\s\S]*\}/);
-            if (match) {
-                try {
-                    parsed = JSON.parse(match[0]);
-                } catch {
-                    throw new Error("No se pudo procesar la respuesta del análisis.");
-                }
-            }
-        }
-
-        if (!parsed) {
-            throw new Error("Respuesta en formato incorrecto.");
+            if (!match) throw new Error("Respuesta inválida del modelo.");
+            parsed = JSON.parse(match[0]);
         }
 
         return parsed;
