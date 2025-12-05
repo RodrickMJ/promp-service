@@ -8,6 +8,10 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 app.use("/analysis", analysisRoutes);
 
+app.get('/', (_req, res) =>{
+    res.send('Main API')
+});
+
 export default app;
 
 

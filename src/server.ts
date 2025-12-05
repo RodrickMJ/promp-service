@@ -6,3 +6,8 @@ const port = process.env.PORT || 3004;
 app.listen(port, () => {
     console.log("corriendo en puerto", port);
 });
+
+
+app.get('/', (_req, res) =>{
+    res.send('LOCAL API')
+});
