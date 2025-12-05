@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { processAnalysis } from "../controllers/analysis.controller";
-import { mlToInterpretationAdapter } from "../middlewares/mlAdapter.middleware";
-import { RagQuestionController } from "../controllers/rag.controller";
+import { processAnalysis } from "../controllers/analysis.controller.js";
+import { mlToInterpretationAdapter } from "../middlewares/mlAdapter.middleware.js";
+import { RagQuestionController } from "../controllers/rag.controller.js";
 
 
 const router = Router();

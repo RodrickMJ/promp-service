@@ -1,6 +1,6 @@
 
 import { Request, Response } from "express";
-import { OpenRouterService } from "../services/openai.service";
+import { OpenRouterService } from "../services/openai.service.js";
 
 export const processAnalysis = async (req: Request, res: Response) => {
   try {
