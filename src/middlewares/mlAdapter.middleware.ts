@@ -5,23 +5,47 @@ export function mlToInterpretationAdapter(
     res: Response,
     next: NextFunction
 ) {
+
+    // Caso A: viene envuelto en distortion (nuevo formato)
+    // Caso B: viene plano (formato viejo)
     const payload = req.body.distortion ?? req.body;
     const ml = payload;
 
-    if (!ml?.analisis || !ml?.scraped_content) {
+    /**
+     * ============================
+     * 1. DETECCIÓN DE TIPO DE PAYLOAD
+     * ============================
+     */
+
+    const tienePipelineCompleto = !!ml?.analisis;
+    const tieneSoloRelevancia = !!ml?.relevance;
+
+    if (!tienePipelineCompleto && !tieneSoloRelevancia) {
         return res.status(400).json({
-            error: "Payload ML inválido para adaptación",
+            error: "Payload ML no reconocido",
             recibido: Object.keys(req.body)
         });
     }
 
-    const contradicciones =
-        ml.analisis?.document_distorsion?.contradicciones ?? [];
+    /**
+     * ============================
+     * 2. NORMALIZACIÓN DE DISTORSIÓN
+     * ============================
+     */
 
-    const primeraContradiccion = contradicciones[0] ?? null;
+    let distortion: any = {
+        decision: "desconocido",
+        contradicciones: [],
+        oraciones_analizadas: []
+    };
 
-    req.body = {
-        distortion: {
+    if (tienePipelineCompleto) {
+        const contradicciones =
+            ml.analisis?.document_distorsion?.contradicciones ?? [];
+
+        const primeraContradiccion = contradicciones[0] ?? null;
+
+        distortion = {
             decision: ml.analisis?.document_distorsion?.veredicto ?? "desconocido",
             contradicciones,
             oraciones_analizadas: primeraContradiccion
@@ -30,44 +54,95 @@ export function mlToInterpretationAdapter(
                     paragraph: primeraContradiccion.parrafo
                 }]
                 : []
-        },
+        };
+    }
 
-        biases: {
+    /**
+     * ============================
+     * 3. NORMALIZACIÓN DE SESGOS
+     * ============================
+     */
+
+    let biases: any = {
+        document: null,
+        user: null,
+        labels: []
+    };
+
+    if (tienePipelineCompleto) {
+        biases = {
             document: ml.analisis?.document_sesgo ?? null,
             user: ml.analisis?.user_sesgo ?? null,
             labels: [
-                ...(ml.analisis?.document_sesgo?.sesgos_encontrados ?? [])
-                    .map((s: any) => s.label),
-                ...(ml.analisis?.user_sesgo?.sesgos_encontrados ?? [])
-                    .map((s: any) => s.label)
+                ...(ml.analisis?.document_sesgo?.sesgos_encontrados ?? []).map((s: any) => s.label),
+                ...(ml.analisis?.user_sesgo?.sesgos_encontrados ?? []).map((s: any) => s.label)
             ]
-        },
+        };
+    }
 
-        relevance: {
+    /**
+     * ============================
+     * 4. NORMALIZACIÓN DE RELEVANCIA
+     * ============================
+     */
+
+    let relevanceRaw =
+        ml?.relevance ??
+        ml?.analisis?.document_relevance ??
+        null;
+
+    if (!relevanceRaw && ml?.distortion?.relevance) {
+        relevanceRaw = ml.distortion.relevance;
+    }
+
+    const relevance = relevanceRaw
+        ? {
             decision:
-                ml.relevance?.decision_document ??
-                ml.analisis?.document_relevance?.decision_document ??
+                relevanceRaw.decision_document ??
+                relevanceRaw.decision ??
                 "desconocido",
 
             score:
-                ml.relevance?.score_document ??
-                ml.analisis?.document_relevance?.score ??
-                null,
-
-            per_paragraph:
-                ml.relevance?.per_paragraph ??
-                ml.analisis?.document_relevance?.per_paragraph ??
+                relevanceRaw.score_document ??
+                relevanceRaw.score ??
                 null,
 
             best_paragraph:
-                ml.relevance?.best_paragraph ??
-                ml.analisis?.document_relevance?.best_paragraph ??
-                null
-        },
+                relevanceRaw.best_paragraph ?? null,
 
-        scraped_content: ml.scraped_content,
+            per_paragraph:
+                relevanceRaw.per_paragraph ?? null
+        }
+        : {
+            decision: "desconocido",
+            score: null,
+            best_paragraph: null,
+            per_paragraph: null
+        };
 
-        raw_ml: ml // 🔎 trazabilidad total
+    /**
+     * ============================
+     * 5. SCRAPED CONTENT (OPCIONAL)
+     * ============================
+     */
+
+    const scraped_content =
+        ml?.scraped_content ??
+        req.body?.scraped_content ??
+        null;
+
+    /**
+     * ============================
+     * 6. PAYLOAD NORMALIZADO FINAL
+     * ============================
+     */
+
+    req.body = {
+        distortion,
+        biases,
+        relevance,
+        scraped_content,
+        raw_ml: ml   // 🔎 trazabilidad completa
     };
 
     next();
