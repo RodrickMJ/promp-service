@@ -18,64 +18,57 @@ export function mlToInterpretationAdapter(
     const contradicciones =
         ml.analisis?.document_distorsion?.contradicciones ?? [];
 
-    const primeraContradiccion = contradicciones[0];
+    const primeraContradiccion = contradicciones[0] ?? null;
 
-    // ✅ RESPETAR LA RELEVANCIA REAL DEL MODELO
-    const relevanciaRaw =
-        ml.analisis?.document_relevance?.decision_document ??
-        ml.relevance?.decision_document ??
-        ml.status ??
-        "desconocido";
-
-    const scoreRelevancia =
-        ml.analisis?.document_relevance?.score_document ??
-        ml.relevance?.score_document ??
-        null;
-
-    const hayRelacion =
-        relevanciaRaw !== "tangencial" &&
-        relevanciaRaw !== "poco_relevante" &&
-        relevanciaRaw !== "desconocido";
-
-    const bestParagraph = hayRelacion
-        ? ml.scraped_content?.segmentos_contenido?.[0]?.text ?? null
-        : null;
-
-    const adaptedPayload = {
+    req.body = {
         distortion: {
-            decision:
-                ml.analisis?.document_distorsion?.veredicto === "distorsion"
-                    ? "DISTORSION"
-                    : "SIN_DISTORSION",
-
+            decision: ml.analisis?.document_distorsion?.veredicto ?? "desconocido",
+            contradicciones,
             oraciones_analizadas: primeraContradiccion
-                ? [
-                    {
-                        sentence: primeraContradiccion.oracion_usuario,
-                        paragraph: primeraContradiccion.parrafo
-                    }
-                ]
+                ? [{
+                    sentence: primeraContradiccion.oracion_usuario,
+                    paragraph: primeraContradiccion.parrafo
+                }]
                 : []
         },
 
         biases: {
+            document: ml.analisis?.document_sesgo ?? null,
+            user: ml.analisis?.user_sesgo ?? null,
             labels: [
-                ...(ml.analisis?.document_sesgo?.sesgos_encontrados ?? []).map(
-                    (s: any) => s.label
-                ),
-                ...(ml.analisis?.user_sesgo?.sesgos_encontrados ?? []).map(
-                    (s: any) => s.label
-                )
+                ...(ml.analisis?.document_sesgo?.sesgos_encontrados ?? [])
+                    .map((s: any) => s.label),
+                ...(ml.analisis?.user_sesgo?.sesgos_encontrados ?? [])
+                    .map((s: any) => s.label)
             ]
         },
 
         relevance: {
-            decision_document: relevanciaRaw,
-            score: scoreRelevancia,
-            best_paragraph: bestParagraph ? { text: bestParagraph } : null
-        }
+            decision:
+                ml.relevance?.decision_document ??
+                ml.analisis?.document_relevance?.decision_document ??
+                "desconocido",
+
+            score:
+                ml.relevance?.score_document ??
+                ml.analisis?.document_relevance?.score ??
+                null,
+
+            per_paragraph:
+                ml.relevance?.per_paragraph ??
+                ml.analisis?.document_relevance?.per_paragraph ??
+                null,
+
+            best_paragraph:
+                ml.relevance?.best_paragraph ??
+                ml.analisis?.document_relevance?.best_paragraph ??
+                null
+        },
+
+        scraped_content: ml.scraped_content,
+
+        raw_ml: ml // 🔎 trazabilidad total
     };
 
-    req.body = adaptedPayload;
     next();
 }
