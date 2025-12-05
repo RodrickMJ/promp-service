@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { generateRAGQuestions } from "../services/deepseek.service";
+import { generateRAGQuestions } from "../services/deepseek.service.js";
 
 export const RagQuestionController = async (req: Request, res: Response) => {
     try {
